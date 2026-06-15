@@ -1,0 +1,12 @@
+---
+description: WEEX repository routing and safety rules
+alwaysApply: true
+---
+
+- Use `skills/weex-trader-skill` for AI Wars WEEX profile, vault, live contract REST, risk preview, account scan, and AI log workflows.
+- Use `skills/weex-analysis-skill` for read-only real contract JSON analysis, replay review, profile review, order-risk analysis, and account-risk analysis.
+- Use `skills/weex-monitor-skill` for automated monitor orchestration around real contract position PnL tasks; it delegates account reads and execution to `skills/weex-trader-skill`.
+- For AI-driven live contract order execution, require `--ai-log @file.json` so UploadAiLog can run after a business-successful primary trade response.
+- Use official WEEX conditional orders through `skills/weex-trader-skill` for price-threshold close requests.
+- Never send mutating WEEX requests without explicit user confirmation.
+- Prefer secret transport that avoids putting credentials or vault passwords directly on argv.
