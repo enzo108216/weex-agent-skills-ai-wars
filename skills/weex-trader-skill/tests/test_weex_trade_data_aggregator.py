@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+from unittest import mock
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import weex_trade_data_aggregator as aggregator
+import weex_contract_api
+
+
+class ContractOnlyAggregatorTests(unittest.TestCase):
+    def test_parser_only_accepts_futures_and_live_mode(self) -> None:
+        parser = aggregator.build_parser()
+
+        args = parser.parse_args(
+            [
+                "collect-account-risk",
+                "--profile",
+                "main",
+                "--market",
+                "futures",
+                "--trading-mode",
+                "live",
+            ]
+        )
+
+        self.assertEqual(args.market, "futures")
+        self.assertEqual(args.trading_mode, "live")
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["collect-account-risk", "--profile", "main", "--market", "spot"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "collect-account-risk",
+                    "--profile",
+                    "main",
+                    "--market",
+                    "futures",
+                    "--trading-mode",
+                    "demo",
+                ]
+            )
+
+    def test_rejects_non_futures_market_before_fetching(self) -> None:
+        fetcher = mock.Mock()
+        trade_aggregator = aggregator.TradeDataAggregator(fetcher=fetcher)
+
+        with self.assertRaises(aggregator.AggregationInputError) as exc_info:
+            trade_aggregator.collect_account_risk_payload(profile_name="main", market="spot")
+
+        self.assertIn("futures", str(exc_info.exception))
+        fetcher.fetch_futures_balance.assert_not_called()
+
+    def test_rejects_non_live_trading_mode_before_fetching(self) -> None:
+        fetcher = mock.Mock()
+        trade_aggregator = aggregator.TradeDataAggregator(fetcher=fetcher)
+
+        with self.assertRaises(aggregator.AggregationInputError) as exc_info:
+            trade_aggregator.collect_account_risk_payload(
+                profile_name="main",
+                market="futures",
+                trading_mode="demo",
+            )
+
+        self.assertIn("live", str(exc_info.exception))
+        fetcher.fetch_futures_balance.assert_not_called()
+
+    def test_live_environment_prefix_is_real_contract_only(self) -> None:
+        environment = aggregator._environment_for_trading_mode("live", "futures")
+
+        self.assertEqual(environment["trading_mode"], "live")
+        self.assertTrue(environment["uses_real_funds"])
+        self.assertEqual(aggregator._user_environment_prefix(environment, "zh"), "当前交易环境：真实盘")
+        self.assertEqual(aggregator._user_environment_prefix(environment, "en"), "Current trading mode: real trading")
+
+    def test_fetch_futures_balance_uses_live_contract_endpoint(self) -> None:
+        fetcher = aggregator.WeexApiFetcher()
+
+        with mock.patch.object(
+            fetcher,
+            "_send_contract_request",
+            return_value={"balance": []},
+        ) as send_mock:
+            payload = fetcher.fetch_futures_balance(profile_name="main", trading_mode="live")
+
+        self.assertEqual(payload, {"balance": []})
+        send_mock.assert_called_once()
+        self.assertEqual(send_mock.call_args.kwargs["endpoint_key"], "account.get_account_balance")
+
+    def test_order_collection_uses_existing_contract_order_endpoints(self) -> None:
+        fetcher = aggregator.WeexApiFetcher()
+
+        cases = (
+            (
+                fetcher.fetch_futures_open_orders,
+                "transaction.get_current_order_status",
+            ),
+            (
+                fetcher.fetch_futures_pending_orders,
+                "transaction.get_current_pending_orders",
+            ),
+        )
+        for fetch_method, expected_endpoint_key in cases:
+            with self.subTest(endpoint=expected_endpoint_key), mock.patch.object(
+                fetcher,
+                "_send_contract_request",
+                return_value={"orders": []},
+            ) as send_mock:
+                payload = fetch_method(profile_name="main", symbol="ethusdt", trading_mode="live")
+
+            self.assertEqual(payload, {"orders": []})
+            send_mock.assert_called_once()
+            call_kwargs = send_mock.call_args.kwargs
+            self.assertEqual(call_kwargs["endpoint_key"], expected_endpoint_key)
+            self.assertIn(call_kwargs["endpoint_key"], weex_contract_api.ENDPOINTS)
+            self.assertEqual(call_kwargs["query"], {"symbol": "ETHUSDT"})
+            self.assertIsNone(call_kwargs.get("body"))
+
+    def test_collect_replay_payload_includes_futures_fills_bills_and_price_series(self) -> None:
+        fetcher = mock.Mock()
+        fetcher.fetch_futures_balance.return_value = {
+            "asset": "USDT",
+            "balance": "1000",
+            "availableBalance": "620",
+            "unrealizePnl": "30",
+        }
+        fetcher.fetch_futures_positions.return_value = [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "marginType": "CROSSED",
+                "separatedMode": "COMBINED",
+                "size": "0.01",
+                "openValue": "650",
+            }
+        ]
+        fetcher.fetch_futures_orders.return_value = [
+            {
+                "symbol": "BTCUSDT",
+                "orderId": 11,
+                "side": "BUY",
+                "positionSide": "LONG",
+                "type": "LIMIT",
+                "status": "FILLED",
+                "origQty": "0.01",
+                "executedQty": "0.01",
+                "cumQuote": "650",
+                "avgPrice": "65000",
+                "time": 1710000000000,
+            }
+        ]
+        fetcher.fetch_futures_historical_pending_orders.return_value = []
+        fetcher.fetch_futures_fills.return_value = [
+            {
+                "id": 21,
+                "orderId": 11,
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "positionSide": "LONG",
+                "price": "65000",
+                "qty": "0.01",
+                "quoteQty": "650",
+                "realizedPnl": "12",
+                "commission": "0.5",
+                "time": 1710003600000,
+            }
+        ]
+        fetcher.fetch_futures_bills.return_value = {
+            "items": [
+                {
+                    "billId": 31,
+                    "asset": "USDT",
+                    "symbol": "BTCUSDT",
+                    "income": "12",
+                    "incomeType": "position_close_long",
+                    "fillFee": "0.5",
+                    "time": 1710003600000,
+                }
+            ]
+        }
+        fetcher.fetch_futures_klines.return_value = [
+            [1710000000000, "64000", "66000", "63500", "65000", "100", 1710003599999, "6500000", 120, "55", "3575000"]
+        ]
+        trade_aggregator = aggregator.TradeDataAggregator(fetcher=fetcher)
+
+        result = trade_aggregator.collect_replay_payload(
+            profile_name="main",
+            market="futures",
+            trading_mode="live",
+            period="7d",
+            symbol="BTCUSDT",
+        )
+
+        self.assertEqual(result["market"], "futures")
+        self.assertEqual(result["trading_mode"], "live")
+        self.assertEqual(result["balances"][0]["account_scope"], "personal_futures")
+        self.assertEqual(result["positions"][0]["symbol"], "BTCUSDT")
+        self.assertEqual(result["orders"][0]["status"], "FILLED")
+        self.assertEqual(result["fills"][0]["realized_pnl"], 12.0)
+        self.assertEqual(result["bills"][0]["type"], "position_close_long")
+        self.assertEqual(result["price_series"][0]["close"], 65000.0)
+        self.assertEqual(result["closed_trade_count"], 1)
+        fetcher.fetch_futures_fills.assert_called()
+        fetcher.fetch_futures_bills.assert_called()
+        fetcher.fetch_futures_klines.assert_called_once()
+
+    def test_main_exits_for_rejected_market(self) -> None:
+        with self.assertRaises(SystemExit) as exc_info:
+            aggregator.main(["collect-account-risk", "--profile", "main", "--market", "spot"])
+
+        self.assertEqual(exc_info.exception.code, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
