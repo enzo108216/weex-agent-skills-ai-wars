@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -95,6 +96,36 @@ class ContractOnlyAggregatorTests(unittest.TestCase):
         send_mock.assert_called_once()
         self.assertEqual(send_mock.call_args.kwargs["endpoint_key"], "account.get_account_balance")
 
+    def test_build_contract_client_uses_profile_runtime_loader(self) -> None:
+        fetcher = aggregator.WeexApiFetcher()
+        profile = types.SimpleNamespace(name="main", contract_base_url="")
+        contract_api = types.SimpleNamespace(
+            DEFAULT_BASE_URL=weex_contract_api.DEFAULT_BASE_URL,
+            DEFAULT_LOCALE=weex_contract_api.DEFAULT_LOCALE,
+            DEFAULT_TIMEOUT=weex_contract_api.DEFAULT_TIMEOUT,
+            WeexContractClient=mock.Mock(return_value=mock.Mock()),
+            ensure_private_runtime_ready=mock.Mock(),
+            refresh_agent_records=mock.Mock(),
+            require_private_profile=mock.Mock(),
+            resolve_runtime_profile=mock.Mock(return_value=profile),
+        )
+
+        with mock.patch.object(fetcher, "_contract_module", return_value=contract_api), mock.patch.dict(
+            "os.environ",
+            {},
+            clear=True,
+        ):
+            returned_contract_api, client = fetcher._build_contract_client("main")
+
+        self.assertIs(returned_contract_api, contract_api)
+        self.assertIs(client, contract_api.WeexContractClient.return_value)
+        contract_api.WeexContractClient.assert_called_once()
+        client_kwargs = contract_api.WeexContractClient.call_args.kwargs
+        self.assertIsNone(client_kwargs["api_key"])
+        self.assertIsNone(client_kwargs["api_secret"])
+        self.assertIsNone(client_kwargs["api_passphrase"])
+        self.assertEqual(client_kwargs["profile_name"], "main")
+
     def test_order_collection_uses_existing_contract_order_endpoints(self) -> None:
         fetcher = aggregator.WeexApiFetcher()
 
@@ -123,6 +154,82 @@ class ContractOnlyAggregatorTests(unittest.TestCase):
             self.assertIn(call_kwargs["endpoint_key"], weex_contract_api.ENDPOINTS)
             self.assertEqual(call_kwargs["query"], {"symbol": "ETHUSDT"})
             self.assertIsNone(call_kwargs.get("body"))
+
+    def test_order_risk_payload_exposes_analysis_context(self) -> None:
+        fetcher = mock.Mock()
+        fetcher.fetch_futures_balance.return_value = [
+            {
+                "asset": "USDT",
+                "balance": "1000",
+                "availableBalance": "620",
+                "unrealizePnl": "12",
+            }
+        ]
+        fetcher.fetch_futures_positions.return_value = [
+            {
+                "symbol": "BTCUSDT",
+                "positionSide": "LONG",
+                "size": "0.01",
+                "openValue": "650",
+                "leverage": "20",
+            }
+        ]
+        fetcher.fetch_futures_open_orders.return_value = [
+            {
+                "orderId": 101,
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "positionSide": "LONG",
+                "type": "LIMIT",
+                "origQty": "0.02",
+                "executedQty": "0.01",
+                "price": "64000",
+            }
+        ]
+        fetcher.fetch_futures_pending_orders.return_value = [
+            {
+                "algoId": 201,
+                "symbol": "BTCUSDT",
+                "side": "SELL",
+                "positionSide": "LONG",
+                "orderType": "TAKE_PROFIT_MARKET",
+                "quantity": "0.01",
+                "triggerPrice": "85000",
+                "reduceOnly": True,
+            },
+            {
+                "algoId": 202,
+                "symbol": "BTCUSDT",
+                "side": "SELL",
+                "positionSide": "LONG",
+                "orderType": "STOP_MARKET",
+                "quantity": "0.01",
+                "triggerPrice": "60000",
+                "reduceOnly": True,
+            },
+        ]
+        trade_aggregator = aggregator.TradeDataAggregator(fetcher=fetcher)
+
+        payload = trade_aggregator.collect_order_risk_payload(
+            profile_name="main",
+            market="futures",
+            trading_mode="live",
+            raw_order={
+                "symbol": "btcusdt",
+                "side": "BUY",
+                "positionSide": "LONG",
+                "type": "MARKET",
+                "quantity": "0.01",
+            },
+        )
+
+        self.assertEqual(payload["account_snapshot"]["balance"], 1000.0)
+        self.assertEqual(payload["account_snapshot"]["available_balance"], 620.0)
+        self.assertEqual(payload["positions"][0]["notional"], 650.0)
+        self.assertEqual(payload["order_preview"]["market"], "futures")
+        self.assertEqual(payload["open_orders"][0]["order_id"], "101")
+        self.assertEqual(payload["conditional_orders"][0]["tp_trigger_price"], 85000.0)
+        self.assertEqual(payload["conditional_orders"][1]["sl_trigger_price"], 60000.0)
 
     def test_collect_replay_payload_includes_futures_fills_bills_and_price_series(self) -> None:
         fetcher = mock.Mock()

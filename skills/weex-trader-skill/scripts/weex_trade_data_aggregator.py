@@ -145,15 +145,12 @@ class WeexApiFetcher:
         timeout = float(os.getenv("WEEX_API_TIMEOUT", contract_api.DEFAULT_TIMEOUT))
         client = contract_api.WeexContractClient(
             base_url=base_url,
-            api_key=contract_api.resolve_secret("WEEX_API_KEY", profile=profile, field="api_key"),
-            api_secret=contract_api.resolve_secret("WEEX_API_SECRET", profile=profile, field="api_secret"),
-            api_passphrase=contract_api.resolve_secret(
-                "WEEX_API_PASSPHRASE",
-                profile=profile,
-                field="api_passphrase",
-            ),
+            api_key=None,
+            api_secret=None,
+            api_passphrase=None,
             locale=locale,
             timeout=timeout,
+            profile_name=profile.name if profile else None,
         )
         return contract_api, client
 
@@ -443,11 +440,27 @@ def _normalize_balance_entries(rows: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def _account_snapshot_from_balances(balances: list[dict[str, Any]]) -> dict[str, Any]:
+    if not balances:
+        return {}
+    selected = next((item for item in balances if item.get("asset") == "USDT"), balances[0])
+    return {
+        "account_scope": selected.get("account_scope"),
+        "asset": selected.get("asset"),
+        "balance": selected.get("balance"),
+        "equity": selected.get("balance"),
+        "available_balance": selected.get("available_balance"),
+        "unrealized_pnl": selected.get("unrealized_pnl"),
+        "raw": selected.get("raw"),
+    }
+
+
 def _normalize_positions(rows: Any) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for row in _payload_items(rows):
         if not isinstance(row, dict):
             continue
+        notional = _to_float(_pick(row, "notional", "openValue", "positionValue"))
         normalized.append(
             {
                 "account_scope": _normalize_account_scope(row),
@@ -456,6 +469,7 @@ def _normalize_positions(rows: Any) -> list[dict[str, Any]]:
                 "position_side": str(_pick(row, "positionSide", "side") or "").upper() or None,
                 "quantity": _to_float(_pick(row, "size", "positionAmt", "quantity")),
                 "open_value": _to_float(_pick(row, "openValue", "notional")),
+                "notional": notional,
                 "entry_price": _to_float(_pick(row, "entryPrice", "avgOpenPrice")),
                 "mark_price": _to_float(_pick(row, "markPrice", "currentPrice")),
                 "unrealized_pnl": _to_float(_pick(row, "unrealizePnl", "unrealizedPnl", "unrealizedProfit")),
@@ -477,6 +491,14 @@ def _normalize_orders(rows: Any) -> list[dict[str, Any]]:
         actual_order_id = _pick(row, "actualOrderId", "orderId")
         algo_id = _pick(row, "algoId")
         order_id = actual_order_id if str(actual_order_id or "") not in {"", "0"} else algo_id
+        order_type = str(_pick(row, "type", "orderType", "planType") or "").lower() or None
+        trigger_price = _to_float(_pick(row, "triggerPrice", "tpTriggerPrice", "slTriggerPrice"))
+        tp_trigger_price = _to_float(_pick(row, "tpTriggerPrice"))
+        sl_trigger_price = _to_float(_pick(row, "slTriggerPrice"))
+        if tp_trigger_price is None and order_type and "take_profit" in order_type:
+            tp_trigger_price = trigger_price
+        if sl_trigger_price is None and order_type and ("stop" in order_type or "stop_loss" in order_type):
+            sl_trigger_price = trigger_price
         normalized.append(
             {
                 "account_scope": _normalize_account_scope(row),
@@ -485,16 +507,16 @@ def _normalize_orders(rows: Any) -> list[dict[str, Any]]:
                 "symbol": _normalize_symbol(_pick(row, "symbol")),
                 "side": str(_pick(row, "side") or "").upper() or None,
                 "position_side": str(_pick(row, "positionSide") or "").upper() or None,
-                "order_type": str(_pick(row, "type", "orderType") or "").lower() or None,
+                "order_type": order_type,
                 "status": str(_pick(row, "status", "algoStatus") or "").upper() or None,
                 "quantity": _to_float(_pick(row, "origQty", "quantity")),
                 "executed_quantity": _to_float(_pick(row, "executedQty", "executedQuantity")),
                 "quote_quantity": _to_float(_pick(row, "cumQuote", "quoteQty")),
                 "avg_price": _to_float(_pick(row, "avgPrice")),
                 "price": _to_float(_pick(row, "price")),
-                "trigger_price": _to_float(_pick(row, "triggerPrice", "tpTriggerPrice", "slTriggerPrice")),
-                "tp_trigger_price": _to_float(_pick(row, "tpTriggerPrice")),
-                "sl_trigger_price": _to_float(_pick(row, "slTriggerPrice")),
+                "trigger_price": trigger_price,
+                "tp_trigger_price": tp_trigger_price,
+                "sl_trigger_price": sl_trigger_price,
                 "reduce_only": _coerce_bool(_pick(row, "reduceOnly")),
                 "close_position": _coerce_bool(_pick(row, "closePosition")),
                 "margin_type": _normalize_margin_type(_pick(row, "marginType")),
@@ -660,11 +682,17 @@ class TradeDataAggregator:
         )
         balances = _normalize_balance_entries(balance_payload)
         positions = _normalize_positions(position_payload)
-        orders = _normalize_orders(_payload_items(open_order_payload) + _payload_items(pending_order_payload))
+        open_orders = _normalize_orders(open_order_payload)
+        conditional_orders = _normalize_orders(pending_order_payload)
+        orders = open_orders + conditional_orders
         payload.update(
             {
+                "account_snapshot": _account_snapshot_from_balances(balances),
                 "balances": balances,
                 "positions": positions,
+                "open_orders": open_orders,
+                "conditional_orders": conditional_orders,
+                "recent_orders": [],
                 "orders": orders,
                 "fills": [],
                 "bills": [],
@@ -697,6 +725,12 @@ class TradeDataAggregator:
         order_preview = dict(raw_order or {})
         if "symbol" in order_preview:
             order_preview["symbol"] = _normalize_symbol(order_preview["symbol"])
+        order_preview.setdefault("market", market)
+        order_preview.setdefault("trading_mode", trading_mode)
+        if "positionSide" in order_preview and "position_side" not in order_preview:
+            order_preview["position_side"] = order_preview["positionSide"]
+        if "type" in order_preview and "order_type" not in order_preview:
+            order_preview["order_type"] = order_preview["type"]
         payload["order_preview"] = order_preview
         return payload
 
