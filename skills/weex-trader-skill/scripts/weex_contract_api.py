@@ -918,7 +918,7 @@ def execute_endpoint_payload(
             "output must contain the concrete AI action parameters. model must be the exact "
             "provider-returned raw model identifier."
         )
-    if ai_log_consistency is not None and not ai_log_consistency["ok"] and not dry_run:
+    if ai_log_consistency is not None and not ai_log_consistency["ok"]:
         mismatch_summary = "; ".join(item["message"] for item in ai_log_consistency["mismatches"])
         raise SystemExit(f"ai-log.output does not match the trade request: {mismatch_summary}")
 

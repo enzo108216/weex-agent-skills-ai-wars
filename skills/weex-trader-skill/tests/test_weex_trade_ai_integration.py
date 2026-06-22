@@ -176,6 +176,46 @@ class WeexTradeAiIntegrationTests(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertEqual(report["mismatches"][0]["field"], "symbol")
 
+    def test_dry_run_rejects_ai_log_consistency_mismatch_before_request_preview(self) -> None:
+        class FakeClient:
+            def prepare_request(self, endpoint, query, body):
+                raise AssertionError("mismatched AI log should be rejected before request preparation")
+
+        with self.assertRaises(SystemExit) as exc:
+            weex_contract_api.execute_endpoint_payload(
+                client=FakeClient(),
+                endpoint_key="transaction.place_order",
+                query={},
+                body={
+                    "symbol": "ETHUSDT",
+                    "side": "SELL",
+                    "positionSide": "SHORT",
+                    "type": "LIMIT",
+                    "quantity": "0.001",
+                    "price": "2450",
+                    "timeInForce": "GTC",
+                    "newClientOrderId": "test-ai-mismatch",
+                },
+                ai_log_context={
+                    "stage": "Strategy Generation",
+                    "model": "gpt-5-2026-03-01",
+                    "input": {"messages": [{"role": "user", "content": "Sell ETH if momentum weakens"}]},
+                    "output": {
+                        "symbol": "BTCUSDT",
+                        "action": "SELL",
+                        "positionSide": "SHORT",
+                        "type": "LIMIT",
+                        "quantity": "0.001",
+                        "price": "2450",
+                    },
+                    "explanation": "test",
+                },
+                dry_run=True,
+                confirm_live=True,
+            )
+
+        self.assertIn("ai-log.output.symbol must match the request body", str(exc.exception))
+
     def test_normalize_trade_result_for_place_pending_order_checks_business_success(self) -> None:
         normalized = weex_contract_api.normalize_trade_result(
             "transaction.place_pending_order",

@@ -1673,6 +1673,10 @@ class MonitorTaskTests(unittest.TestCase):
                     results = monitor.run_live_once(confirm_live=True, now_ms=2000)
                 tasks = monitor.load_tasks()
                 events = monitor.load_events(confirmed["task_id"])
+                preview_command = runner.call_args_list[2].args[0]
+                confirm_command = runner.call_args_list[3].args[0]
+                ai_log_ref = preview_command[preview_command.index("--ai-log") + 1]
+                ai_log_payload = json.loads(Path(ai_log_ref[1:]).read_text(encoding="utf-8"))
 
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0]["result"]["triggered"])
@@ -1700,11 +1704,17 @@ class MonitorTaskTests(unittest.TestCase):
         self.assertNotIn("avgPrice", submitted_payload)
         self.assertNotIn("accountBalance", submitted_payload)
         self.assertNotIn("rawPosition", submitted_payload)
-        preview_command = runner.call_args_list[2].args[0]
-        confirm_command = runner.call_args_list[3].args[0]
         self.assertIn("preview-order", preview_command)
         self.assertIn("confirm-order", confirm_command)
         self.assertIn("--confirm-live", confirm_command)
+        self.assertIn("--ai-log", preview_command)
+        self.assertTrue(ai_log_ref.startswith("@"))
+        self.assertEqual(ai_log_payload["stage"], "Monitor Execution")
+        self.assertEqual(ai_log_payload["output"]["symbol"], "BTCUSDT")
+        self.assertEqual(ai_log_payload["output"]["side"], "SELL")
+        self.assertEqual(ai_log_payload["output"]["positionSide"], "LONG")
+        self.assertEqual(ai_log_payload["output"]["type"], "MARKET")
+        self.assertEqual(ai_log_payload["output"]["quantity"], "0.01")
         preview_order_json = preview_command[preview_command.index("--order-json") + 1]
         preview_order = json.loads(preview_order_json)
         self.assertEqual(preview_order["side"], "SELL")

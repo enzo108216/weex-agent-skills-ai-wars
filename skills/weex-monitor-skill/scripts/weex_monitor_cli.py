@@ -32,6 +32,7 @@ VALID_CALLBACK_TYPES = {"current_thread"}
 VALID_MARKETS = {"futures"}
 DEFAULT_TRADING_MODE = "live"
 VALID_TRADING_MODES = {"live"}
+MONITOR_AI_LOG_MODEL = "weex-monitor-skill"
 CONFIRMATION_REPLY_TEXT_BY_LANGUAGE = {
     "zh": "确认",
     "en": "confirm",
@@ -277,6 +278,53 @@ def evaluate_pnl_task(task: dict[str, Any], positions: list[dict[str, Any]]) -> 
             "quantity": str(quantity),
         },
     }
+
+
+def _canonical_contract_close_output(close_order: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "symbol": close_order["symbol"],
+        "side": close_order["side"],
+        "positionSide": close_order["position_side"],
+        "type": close_order["order_type"],
+        "quantity": close_order["quantity"],
+    }
+
+
+def _write_live_close_ai_log(
+    task: dict[str, Any],
+    close_order: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    now_ms: int,
+) -> str:
+    ai_log_dir = monitor_home() / "ai-logs"
+    ai_log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    ai_log_dir.chmod(0o700)
+    ai_log_path = ai_log_dir / f"{task['task_id']}-{now_ms}-{uuid.uuid4().hex[:8]}.json"
+    payload = {
+        "stage": "Monitor Execution",
+        "model": MONITOR_AI_LOG_MODEL,
+        "input": {
+            "task_type": task["task_type"],
+            "task_id": task["task_id"],
+            "profile": task["profile"],
+            "market": task["market"],
+            "trading_mode": task["trading_mode"],
+            "symbol": task["symbol"],
+            "position_side": task["position_side"],
+            "condition": task["condition"],
+            "action": task["action"],
+            "trigger_snapshot": result.get("trigger_snapshot", {}),
+        },
+        "output": _canonical_contract_close_output(close_order),
+        "explanation": (
+            "The saved WEEX monitor rule revalidated the live position PnL trigger and generated "
+            "this directional market close order through weex-trader-skill."
+        ),
+    }
+    ai_log_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    ai_log_path.chmod(0o600)
+    return f"@{ai_log_path}"
 
 
 def prepare_confirmation(
@@ -1115,6 +1163,12 @@ def run_live_once(
 
         close_order = dict(recheck_result["close_order"])
         close_order["new_client_order_id"] = _live_client_order_id(task["task_id"])
+        ai_log_ref = _write_live_close_ai_log(
+            task,
+            close_order,
+            recheck_result,
+            now_ms=evaluated_at_ms,
+        )
         if not claim_task_for_execution(task, now_ms=evaluated_at_ms):
             output = _live_not_executed_output(task, "execution_already_claimed")
             _append_live_event(task["task_id"], "live_execution_skipped", output, evaluated_at_ms)
@@ -1134,6 +1188,8 @@ def run_live_once(
                     task["trading_mode"],
                     "--order-json",
                     json.dumps(close_order, ensure_ascii=False, separators=(",", ":")),
+                    "--ai-log",
+                    ai_log_ref,
                     "--ttl-seconds",
                     "300",
                     "--pretty",
