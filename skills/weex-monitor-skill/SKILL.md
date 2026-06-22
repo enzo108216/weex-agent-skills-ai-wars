@@ -2,6 +2,7 @@
 name: weex-monitor-skill
 description: Use when the user wants a WEEX automated monitor for position PnL that drafts, confirms, stores, evaluates, runs, and reports monitor tasks while delegating live execution to weex-trader-skill.
 compatibility: Requires Python for the bundled monitor task scripts. Live WEEX REST access, profile storage, vault access, signing, and order submission belong to weex-trader-skill.
+license: MIT
 ---
 
 # WEEX Monitor Skill

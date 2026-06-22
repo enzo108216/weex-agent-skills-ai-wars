@@ -1,6 +1,7 @@
 ---
 compatibility: Requires Python with requirements.lock installed, network access for WEEX REST calls, and Tk through an explicitly prepared managed GUI runtime for Windows/macOS GUI profile and vault flows.
 description: Use when the user wants WEEX AI Wars real contract REST automation, secure saved-profile setup and management, live contract order execution, and AI log upload for AI-driven trading decisions.
+license: MIT
 name: weex-trader-skill
 ---
 # WEEX Trader Skill

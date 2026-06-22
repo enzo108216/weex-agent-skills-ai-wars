@@ -11,10 +11,6 @@
 !/test_all_skills.py
 
 # Keep tracked catalog structures and their contents.
-!/.agents/
-!/.agents/**
-!/.claude/
-!/.claude/**
 !/.cursor/
 !/.cursor/**
 !/.github/

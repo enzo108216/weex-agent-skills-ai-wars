@@ -1,5 +1,6 @@
 {
   "schema_version": 3,
+  "license": "MIT",
   "identity": {
     "name": "weex-trader-skill",
     "source_of_truth": "SKILL.md",
@@ -57,7 +58,7 @@
           "poll-ticker"
         ],
         "needs_profile_for_private": true,
-        "trading_mode": "",
+        "trading_mode": "live",
         "ai_wars_auto_log": "live transaction.place_order, transaction.close_positions, transaction.place_pending_order, and transaction.place_tp_sl_order require --ai-log @file.json for AI-driven execution and upload only after business-successful primary responses"
       },
       "ai_wars": {
@@ -179,8 +180,7 @@
         "references/script-operations.md"
       ],
       "inspect raw endpoint fields": [
-        "references/contract-api-definitions.json",
-        ""
+        "references/contract-api-definitions.json"
       ]
     }
   },

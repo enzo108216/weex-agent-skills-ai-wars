@@ -1,5 +1,6 @@
 {
   "schema_version": 3,
+  "license": "MIT",
   "identity": {
     "name": "weex-analysis-skill",
     "source_of_truth": "SKILL.md",

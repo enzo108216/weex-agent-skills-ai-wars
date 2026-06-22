@@ -255,6 +255,24 @@ class RepoConsistencyTests(unittest.TestCase):
         self.assertEqual(skill_name, manifest["identity"]["name"])
         self.assertEqual(manifest["identity"]["source_of_truth"], "SKILL.md")
 
+    def test_manifest_has_no_empty_machine_readable_values(self) -> None:
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        empty_values: list[str] = []
+
+        def walk(value: object, path: str = "") -> None:
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    walk(child, f"{path}.{key}" if path else str(key))
+            elif isinstance(value, list):
+                for index, child in enumerate(value):
+                    walk(child, f"{path}[{index}]")
+            elif value == "":
+                empty_values.append(path)
+
+        walk(manifest)
+
+        self.assertEqual(empty_values, [])
+
     def test_skill_documents_ai_wars_contract_only_boundary(self) -> None:
         skill_text = SKILL.read_text(encoding="utf-8")
         readme_text = README.read_text(encoding="utf-8")
