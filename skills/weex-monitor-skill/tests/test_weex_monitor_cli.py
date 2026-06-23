@@ -441,10 +441,53 @@ class MonitorTaskTests(unittest.TestCase):
         ) as run_mock:
             payload = monitor._collect_live_account_payload(task)
 
-        command = run_mock.call_args.args[0]
+        command = run_mock.call_args_list[0].args[0]
         self.assertEqual(payload["trading_mode"], "live")
         self.assertIn("--trading-mode", command)
         self.assertIn("live", command)
+
+    def test_collect_live_account_payload_backfills_market_snapshot_price(self) -> None:
+        task = monitor.normalize_task(
+            {
+                "task_type": "order_baseline_pnl_monitor",
+                "profile": "demo-profile",
+                "trading_mode": "live",
+                "symbol": "BTCUSDT",
+                "position_side": "LONG",
+                "baseline": {"entry_price": "70000", "quantity": "0.01"},
+                "condition": {
+                    "metric": "baseline_unrealized_pnl",
+                    "operator": ">",
+                    "threshold": "0",
+                },
+                "action": {
+                    "type": "market_close",
+                    "target": "LONG",
+                },
+                "callback": {"type": "current_thread"},
+            },
+            now_ms=1000,
+        )
+
+        with mock.patch.object(
+            monitor,
+            "_run_json_command",
+            side_effect=[
+                {"positions": [], "trading_mode": "live"},
+                {"result": {"symbol": "BTCUSDT", "price": "70010", "time": 12345}},
+            ],
+        ) as run_mock:
+            payload = monitor._collect_live_account_payload(task)
+
+        account_command = run_mock.call_args_list[0].args[0]
+        ticker_command = run_mock.call_args_list[1].args[0]
+        self.assertIn("weex_trade_data_aggregator.py", account_command[1])
+        self.assertIn("--trading-mode", account_command)
+        self.assertIn("live", account_command)
+        self.assertIn("weex_contract_api.py", ticker_command[1])
+        self.assertIn("ticker", ticker_command)
+        self.assertEqual(payload["market_snapshot"]["current_price"], "70010")
+        self.assertEqual(payload["market_snapshot"]["time"], 12345)
 
     def test_confirm_requires_explicit_monitor_confirmation_before_active_task_is_saved(self) -> None:
         task_json = {

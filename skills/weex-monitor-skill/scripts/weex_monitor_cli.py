@@ -1558,7 +1558,43 @@ def _collect_live_account_payload(task: dict[str, Any]) -> dict[str, Any]:
     )
     if not isinstance(payload, dict):
         raise MonitorInputError("account-risk payload must be a JSON object")
+    if (
+        task.get("task_type") == ORDER_BASELINE_PNL_MONITOR
+        and not payload.get("partial")
+        and not isinstance(payload.get("market_snapshot"), dict)
+    ):
+        market_snapshot = _collect_live_market_snapshot(str(task["symbol"]))
+        if market_snapshot:
+            payload["market_snapshot"] = market_snapshot
     return payload
+
+
+def _collect_live_market_snapshot(symbol: str) -> dict[str, Any] | None:
+    try:
+        payload = _run_json_command(
+            _trader_script_command(
+                "weex_contract_api.py",
+                "ticker",
+                "--symbol",
+                symbol,
+                "--pretty",
+            )
+        )
+    except MonitorInputError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None
+    price = _first_present(result, ("price", "current_price", "currentPrice", "markPrice", "lastPrice"))
+    if price is None or str(price).strip() == "":
+        return None
+    snapshot: dict[str, Any] = {"current_price": str(price).strip()}
+    timestamp = _first_present(result, ("time", "timestamp", "ts"))
+    if timestamp is not None:
+        snapshot["time"] = timestamp
+    return snapshot
 
 
 def _positions_from_account_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
