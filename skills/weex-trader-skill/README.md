@@ -118,9 +118,10 @@ Use this safety order for trading tasks:
 - run `skill.preflight` first so profile, runtime, env, and GUI-routing facts are fresh before private actions
 - use a saved profile for private REST access instead of pasting credentials into ad hoc commands
 - treat this AI Wars build as real contract trading only
-- for every natural-language summary that uses private WEEX data or mentions a private order action, start with `user_environment_prefix` when it is returned; Chinese output should begin with `当前交易环境：真实盘`, and English output should begin with `Current trading mode: real trading`
+- do not offer environment switching or environment-choice confirmations; this build has one trading route only
+- for natural-language summaries that use private WEEX data or mention a submitted private order action, include `user_environment_prefix` when it is returned as audit context, not as an extra confirmation step
 - preview the order risk first and review the returned alerts plus `user_confirmation`
-- in natural-language order preview flows, show `user_confirmation.reply_instruction` as the confirmation block. The confirmation block must put the mode and funds warning first, then the risk preview status, order summary, highest-priority warning, and exact confirmation reply
+- in natural-language order preview flows, show `user_confirmation.reply_instruction` as the confirmation block. The confirmation block includes the risk preview status, order summary, highest-priority warning, and exact confirmation reply; it must not include environment choices, funds-warning lead-ins, or switch-environment replies
 - ask the user to reply with exactly `user_confirmation.reply_text` when they want to execute; this value is intentionally simple and localized, such as `confirm` for English
 - keep `intent_id` and `risk_signature` internal for the execution step
 - confirm only with the latest preview output and `--confirm-live`
@@ -153,7 +154,7 @@ If an AI or automation host launches the GUI, prefer `scripts/weex_gui_launcher.
 - Temporary password files and secret JSON files can leak through backups, sync folders, editors' recent-file lists, and filesystem forensics. Delete them immediately and keep them outside the repo.
 - `profiles.meta.json` is not the encrypted vault. It can still reveal account names, descriptions, default-profile choices, and custom base URLs.
 - `manual_once` is the supported Linux vault mode. Lock it again after sensitive work when appropriate.
-- `--confirm-live` sends real order or cancel requests to real trading. Start with least-privilege keys and a small or non-critical account whenever possible.
+- `--confirm-live` sends order or cancel requests. Start with least-privilege keys and a small or non-critical account whenever possible.
 - AI Wars request captures sanitize auth headers but can still contain prompts, source materials, trading decisions, and explanations. Keep capture directories outside synced or shared folders and delete them after debugging.
 - `preview-order` returns localized `user_confirmation.reply_text` for the human reply, while `intent_id` plus `risk_signature` remain internal execution-binding values.
 - `confirm-order` expects the `intent_id` and `risk_signature` returned by `preview-order`; if either is missing or mismatched, regenerate the preview instead of forcing the old confirmation through.

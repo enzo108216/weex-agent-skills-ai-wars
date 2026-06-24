@@ -840,7 +840,6 @@ def _output_json(payload: dict[str, Any], *, pretty: bool = False) -> None:
 def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--profile", required=True)
     parser.add_argument("--market", choices=("futures",), default="futures")
-    parser.add_argument("--trading-mode", choices=TRADING_MODES, default=DEFAULT_TRADING_MODE)
     parser.add_argument("--symbol", default=None)
     parser.add_argument("--pretty", action="store_true")
 
@@ -878,7 +877,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = aggregator.collect_replay_payload(
                 profile_name=args.profile,
                 market=args.market,
-                trading_mode=args.trading_mode,
+                trading_mode=DEFAULT_TRADING_MODE,
                 symbol=args.symbol,
                 period=args.period,
             )
@@ -886,7 +885,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = aggregator.collect_profile_payload(
                 profile_name=args.profile,
                 market=args.market,
-                trading_mode=args.trading_mode,
+                trading_mode=DEFAULT_TRADING_MODE,
                 symbol=args.symbol,
                 period=args.period,
             )
@@ -894,14 +893,14 @@ def main(argv: list[str] | None = None) -> int:
             payload = aggregator.collect_order_risk_payload(
                 profile_name=args.profile,
                 market=args.market,
-                trading_mode=args.trading_mode,
+                trading_mode=DEFAULT_TRADING_MODE,
                 raw_order=json.loads(args.order_json),
             )
         elif args.command == "collect-account-risk":
             payload = aggregator.collect_account_risk_payload(
                 profile_name=args.profile,
                 market=args.market,
-                trading_mode=args.trading_mode,
+                trading_mode=DEFAULT_TRADING_MODE,
                 symbol=args.symbol,
             )
         else:  # pragma: no cover

@@ -309,24 +309,14 @@ def _build_zh_confirmation_instruction(
     preview_context: dict[str, Any] | None,
     reply_text: str,
 ) -> str:
-    mode = _confirmation_environment_label(environment, language="zh")
-    uses_real_funds = bool(environment.get("uses_real_funds"))
-    funds_line = "本次操作将使用真实资金，请谨慎确认。" if uses_real_funds else "本次操作不会使用真实资金。"
-    confirm_line = (
-        f"如果确认使用真实资金提交这笔订单，请回复：{reply_text}"
-        if uses_real_funds
-        else f"如果确认提交到{mode}，请回复：{reply_text}"
-    )
+    _normalize_trading_mode(environment.get("trading_mode"))
     lines = [
-        f"当前交易环境：{mode}",
-        funds_line,
-        "",
-        f"{mode}风险预览已生成，订单尚未提交。",
+        "风险预览已生成，订单尚未提交。",
         "",
         _format_zh_order_summary(preview_context),
         _format_zh_alert_summary(preview_context),
         "",
-        confirm_line,
+        f"如果确认提交这笔订单，请回复：{reply_text}",
     ]
     return "\n".join(lines)
 
@@ -337,25 +327,14 @@ def _build_en_confirmation_instruction(
     preview_context: dict[str, Any] | None,
     reply_text: str,
 ) -> str:
-    mode = _confirmation_environment_label(environment, language="en")
-    uses_real_funds = bool(environment.get("uses_real_funds"))
-    funds_line = "This operation uses real funds. Confirm carefully." if uses_real_funds else "This operation does not use real funds."
-    preview_line = f"{mode.capitalize()} risk preview generated; order has not been submitted."
-    confirm_line = (
-        f"To submit this order with real funds, reply: {reply_text}"
-        if uses_real_funds
-        else f"To submit this order to {mode}, reply: {reply_text}"
-    )
+    _normalize_trading_mode(environment.get("trading_mode"))
     lines = [
-        f"Trading mode: {mode}",
-        funds_line,
-        "",
-        preview_line,
+        "Risk preview generated; order has not been submitted.",
         "",
         _format_en_order_summary(preview_context),
         _format_en_alert_summary(preview_context),
         "",
-        confirm_line,
+        f"To submit this order, reply: {reply_text}",
     ]
     return "\n".join(lines)
 
@@ -686,9 +665,7 @@ def cmd_confirm_order(args: argparse.Namespace, *, now_ms: int | None = None) ->
         _output_json(
             {
                 "ok": False,
-                "error": "intent_trading_mode_mismatch: requested trading mode does not match the saved pending order.",
-                "requested_trading_mode": requested_mode,
-                "intent_trading_mode": intent_mode,
+                "error": "pending_intent_mismatch: request does not match the saved pending order.",
             },
             args.pretty,
         )
@@ -697,7 +674,7 @@ def cmd_confirm_order(args: argparse.Namespace, *, now_ms: int | None = None) ->
         _output_json(
             {
                 "ok": False,
-                "error": "confirm_flag_mode_mismatch: confirm-order requires --confirm-live.",
+                "error": "confirm_live_required: confirm-order requires --confirm-live before submitting.",
                 "trading_mode": intent_mode,
             },
             args.pretty,
@@ -757,10 +734,10 @@ def cmd_confirm_tp_sl(args: argparse.Namespace, *, now_ms: int | None = None) ->
     intent_mode = _normalize_trading_mode(intent.get("trading_mode", DEFAULT_TRADING_MODE))
     requested_mode = _normalize_trading_mode(_arg_value(args, "trading_mode", intent_mode))
     if requested_mode != intent_mode:
-        _output_json({"ok": False, "error": "TP/SL confirmation trading mode mismatch."}, args.pretty)
+        _output_json({"ok": False, "error": "Pending TP/SL intent does not match this confirmation."}, args.pretty)
         return 1
     if not _confirm_flags_match_mode(args, intent_mode):
-        _output_json({"ok": False, "error": "confirm-tp-sl still requires --confirm-live before sending a real TP/SL order."}, args.pretty)
+        _output_json({"ok": False, "error": "confirm-tp-sl requires --confirm-live before submitting."}, args.pretty)
         return 1
     if not args.intent_id or not args.risk_signature:
         _output_json(
@@ -832,7 +809,6 @@ def build_parser() -> argparse.ArgumentParser:
     preview = subparsers.add_parser("preview-order", help="Preview risk before placing an order.")
     preview.add_argument("--profile", required=True, help="Saved profile name.")
     preview.add_argument("--market", required=True, choices=("futures",))
-    preview.add_argument("--trading-mode", choices=TRADING_MODES, default=DEFAULT_TRADING_MODE)
     preview.add_argument("--order-json", required=True, help="JSON order payload.")
     preview.add_argument(
         "--ai-log",
@@ -845,11 +821,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     preview_tp_sl = subparsers.add_parser(
         "preview-tp-sl",
-        help="Preview a real trading only futures TP/SL conditional order.",
-        description="Preview risk before placing a futures TP/SL conditional order. This flow is real trading only.",
+        help="Preview a futures TP/SL conditional order.",
+        description="Preview risk before placing a futures TP/SL conditional order.",
     )
     preview_tp_sl.add_argument("--profile", required=True, help="Saved profile name.")
-    preview_tp_sl.add_argument("--trading-mode", choices=TRADING_MODES, default=DEFAULT_TRADING_MODE, help="TP/SL trading mode; real trading only.")
     preview_tp_sl.add_argument("--tp-sl-json", required=True, help="JSON TP/SL conditional order payload.")
     preview_tp_sl.add_argument(
         "--ai-log",
@@ -863,8 +838,7 @@ def build_parser() -> argparse.ArgumentParser:
     confirm = subparsers.add_parser("confirm-order", help="Submit the last previewed order.")
     confirm.add_argument("--intent-id", default=None, help="Optional explicit intent id to confirm.")
     confirm.add_argument("--risk-signature", default=None, help="Risk signature returned by preview-order.")
-    confirm.add_argument("--trading-mode", choices=TRADING_MODES, default=DEFAULT_TRADING_MODE)
-    confirm.add_argument("--confirm-live", action="store_true", help="Required before sending a real order.")
+    confirm.add_argument("--confirm-live", action="store_true", help="Required before sending the order.")
     confirm.add_argument(
         "--ai-log",
         default=None,
@@ -875,13 +849,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     confirm_tp_sl = subparsers.add_parser(
         "confirm-tp-sl",
-        help="Submit the last previewed real trading futures TP/SL conditional order.",
-        description="Submit the last previewed futures TP/SL conditional order. This flow is real trading only.",
+        help="Submit the last previewed futures TP/SL conditional order.",
+        description="Submit the last previewed futures TP/SL conditional order.",
     )
     confirm_tp_sl.add_argument("--intent-id", default=None, help="Optional explicit intent id to confirm.")
     confirm_tp_sl.add_argument("--risk-signature", default=None, help="Risk signature returned by preview-tp-sl.")
-    confirm_tp_sl.add_argument("--trading-mode", choices=TRADING_MODES, default=DEFAULT_TRADING_MODE)
-    confirm_tp_sl.add_argument("--confirm-live", action="store_true", help="Required before sending a real TP/SL order.")
+    confirm_tp_sl.add_argument("--confirm-live", action="store_true", help="Required before sending the TP/SL order.")
     confirm_tp_sl.add_argument(
         "--ai-log",
         default=None,
@@ -892,7 +865,6 @@ def build_parser() -> argparse.ArgumentParser:
     account_scan = subparsers.add_parser("account-scan", help="Review current account-level risk without an order preview.")
     account_scan.add_argument("--profile", required=True, help="Saved profile name.")
     account_scan.add_argument("--market", required=True, choices=("futures",))
-    account_scan.add_argument("--trading-mode", choices=TRADING_MODES, default=DEFAULT_TRADING_MODE)
     account_scan.add_argument("--symbol", default=None, help="Optional trading pair focus.")
     account_scan.add_argument("--language", choices=("zh", "en"), default=None, help="Language for user-facing environment prefix.")
     account_scan.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")

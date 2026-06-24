@@ -16,7 +16,7 @@ import weex_trade_guard as trade_guard
 
 
 class ContractOnlyTradeGuardTests(unittest.TestCase):
-    def test_parser_only_accepts_futures_and_live_confirmation(self) -> None:
+    def test_parser_accepts_futures_without_public_trading_mode_switch(self) -> None:
         parser = trade_guard.build_parser()
 
         args = parser.parse_args(
@@ -26,15 +26,12 @@ class ContractOnlyTradeGuardTests(unittest.TestCase):
                 "main",
                 "--market",
                 "futures",
-                "--trading-mode",
-                "live",
                 "--order-json",
                 '{"symbol":"BTCUSDT","side":"BUY","position_side":"LONG","type":"MARKET","quantity":"0.001"}',
             ]
         )
 
         self.assertEqual(args.market, "futures")
-        self.assertEqual(args.trading_mode, "live")
         args = parser.parse_args(
             [
                 "preview-order",
@@ -42,8 +39,6 @@ class ContractOnlyTradeGuardTests(unittest.TestCase):
                 "main",
                 "--market",
                 "futures",
-                "--trading-mode",
-                "live",
                 "--order-json",
                 '{"symbol":"BTCUSDT","side":"BUY","position_side":"LONG","type":"MARKET","quantity":"0.001"}',
                 "--ai-log",
@@ -79,13 +74,15 @@ class ContractOnlyTradeGuardTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parser.parse_args(
                 [
-                    "confirm-order",
-                    "--intent-id",
-                    "intent-1",
-                    "--risk-signature",
-                    "sig-1",
+                    "preview-order",
+                    "--profile",
+                    "main",
+                    "--market",
+                    "futures",
                     "--trading-mode",
-                    "demo",
+                    "live",
+                    "--order-json",
+                    "{}",
                 ]
             )
         with self.assertRaises(SystemExit):
@@ -201,6 +198,32 @@ class ContractOnlyTradeGuardTests(unittest.TestCase):
         confirmation = captured["payload"]["user_confirmation"]
         self.assertNotIn("switch_reply_text", confirmation)
         self.assertNotIn("切换", confirmation["reply_instruction"])
+        self.assertNotIn("当前交易环境", confirmation["reply_instruction"])
+        self.assertNotIn("真实盘", confirmation["reply_instruction"])
+        self.assertNotIn("真实资金", confirmation["reply_instruction"])
+
+    def test_preview_order_english_confirmation_does_not_offer_mode_confirmation(self) -> None:
+        confirmation = trade_guard._build_user_confirmation(
+            "en",
+            environment={"trading_mode": "live", "uses_real_funds": True, "market": "futures"},
+            preview_context={
+                "order_preview": {
+                    "symbol": "BTCUSDT",
+                    "side": "BUY",
+                    "position_side": "LONG",
+                    "order_type": "MARKET",
+                    "quantity": "0.001",
+                    "market": "futures",
+                    "trading_mode": "live",
+                },
+                "alerts": [],
+            },
+        )
+
+        self.assertNotIn("switch_reply_text", confirmation)
+        self.assertNotIn("Trading mode", confirmation["reply_instruction"])
+        self.assertNotIn("real trading", confirmation["reply_instruction"])
+        self.assertNotIn("real funds", confirmation["reply_instruction"])
 
     def test_submit_order_rejects_non_futures_market_before_client_build(self) -> None:
         with mock.patch.object(trade_guard, "_build_contract_client") as contract_mock:
@@ -334,7 +357,6 @@ class ContractOnlyTradeGuardTests(unittest.TestCase):
             risk_signature="sig-1",
             trading_mode="live",
             confirm_live=True,
-            confirm_demo=False,
             language=None,
             pretty=False,
             ai_log=None,
@@ -389,7 +411,6 @@ class ContractOnlyTradeGuardTests(unittest.TestCase):
             risk_signature="sig-1",
             trading_mode="live",
             confirm_live=True,
-            confirm_demo=False,
             pretty=False,
             ai_log=None,
         )
@@ -417,10 +438,10 @@ class ContractOnlyTradeGuardTests(unittest.TestCase):
         self.assertEqual(captured["payload"]["aiLogContextSource"], "preview")
 
     def test_confirm_flag_matching_requires_live_flag_only(self) -> None:
-        args = mock.Mock(confirm_live=True, confirm_demo=False)
+        args = mock.Mock(confirm_live=True)
         self.assertTrue(trade_guard._confirm_flags_match_mode(args, "live"))
 
-        args = mock.Mock(confirm_live=False, confirm_demo=False)
+        args = mock.Mock(confirm_live=False)
         self.assertFalse(trade_guard._confirm_flags_match_mode(args, "live"))
 
 

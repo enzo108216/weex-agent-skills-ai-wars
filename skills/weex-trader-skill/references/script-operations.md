@@ -177,7 +177,7 @@ python3 scripts/weex_trade_data_aggregator.py collect-order-risk --profile main 
 ```
 
 `weex_trade_guard.py` binds profile, market, order preview, and alerts into the pending intent risk signature. Preview first, then confirm with the latest preview output.
-Private account, order, cancel, TP/SL, and order-query outputs include `user_environment_prefix` whenever the command has environment context. Natural-language summaries must put that prefix on the first line before describing balances, positions, submitted orders, order status, or order history.
+Private account, order, cancel, TP/SL, and order-query outputs include `user_environment_prefix` whenever the command has environment context. Use that prefix as audit context only; do not add environment-switching prompts.
 
 ```bash
 # Windows users: replace python3 with py -3

@@ -18,7 +18,7 @@ import weex_contract_api
 
 
 class ContractOnlyAggregatorTests(unittest.TestCase):
-    def test_parser_only_accepts_futures_and_live_mode(self) -> None:
+    def test_parser_accepts_futures_without_public_trading_mode_switch(self) -> None:
         parser = aggregator.build_parser()
 
         args = parser.parse_args(
@@ -28,13 +28,10 @@ class ContractOnlyAggregatorTests(unittest.TestCase):
                 "main",
                 "--market",
                 "futures",
-                "--trading-mode",
-                "live",
             ]
         )
 
         self.assertEqual(args.market, "futures")
-        self.assertEqual(args.trading_mode, "live")
         with self.assertRaises(SystemExit):
             parser.parse_args(["collect-account-risk", "--profile", "main", "--market", "spot"])
         with self.assertRaises(SystemExit):
@@ -46,7 +43,7 @@ class ContractOnlyAggregatorTests(unittest.TestCase):
                     "--market",
                     "futures",
                     "--trading-mode",
-                    "demo",
+                    "live",
                 ]
             )
 

@@ -283,6 +283,7 @@ class RepoConsistencyTests(unittest.TestCase):
             self.assertIn("--confirm-live", text)
             self.assertIn("--ai-log @file.json", text)
             self.assertNotIn("--confirm-demo", text)
+            self.assertNotIn("--trading-mode", text)
             self.assertNotIn("--trading-mode demo", text)
             self.assertNotIn("weex_spot_api.py", text)
             self.assertNotIn("spot-endpoints.md", text)
@@ -598,7 +599,7 @@ class RepoConsistencyTests(unittest.TestCase):
             self.assertNotIn("/sim/", definition.get("path", ""))
         self.assertNotIn("spot", manifest["routing"]["domains"])
         self.assertNotIn("weex_spot_api.py", json.dumps(file_index, ensure_ascii=False))
-        for forbidden in ("--confirm-demo", "--trading-mode demo", "spot-endpoints", "spot-api-definitions", "sim."):
+        for forbidden in ("--confirm-demo", "--trading-mode", "spot-endpoints", "spot-api-definitions", "sim."):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, combined)
 

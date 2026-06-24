@@ -8,7 +8,7 @@ The AI Wars trader aggregation layer emits normalized JSON for real contract rep
 - `profile`: saved profile name used for collection.
 - `market`: always `futures`.
 - `trading_mode`: always `live`.
-- `environment`: user-facing trading metadata; display this instead of inferring context from profile names or base URLs.
+- `environment`: execution metadata; this is not a user-selectable mode switch.
 - `symbol`: optional uppercase contract symbol.
 - `partial`: whether the aggregation layer could not prove the dataset is complete.
 - `constraints`: explicit collection limits.
@@ -26,7 +26,7 @@ The AI Wars trader aggregation layer emits normalized JSON for real contract rep
 }
 ```
 
-Chinese user-facing summaries should begin with `当前交易环境：真实盘` when the prefix is returned. English summaries should begin with `Current trading mode: real trading`.
+When a command returns `user_environment_prefix`, use it as audit context only; do not turn it into an environment-selection prompt.
 
 ## Replay Payload
 
@@ -91,7 +91,7 @@ Chinese user-facing summaries should begin with `当前交易环境：真实盘`
 }
 ```
 
-The pending order intent and risk signature bind `trading_mode`, `environment`, profile, market, order preview, and alerts before a real order can be confirmed.
+The pending order intent and risk signature bind `trading_mode`, `environment`, profile, market, order preview, and alerts before an order can be submitted.
 
 ## Account-Risk Payload
 

@@ -36,7 +36,7 @@
       "product: real contract or AI Wars",
       "request_type: market, order, profile, linux setup, or maintenance",
       "auth_scope: public or private",
-      "trading_mode: live real-contract workflows only",
+      "execution_scope: real-contract workflows only",
       "platform: macOS/Windows or Linux",
       "interaction_mode: GUI, terminal, or headless",
       "language: zh, en, or auto"

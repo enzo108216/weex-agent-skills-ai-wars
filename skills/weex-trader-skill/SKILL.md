@@ -126,10 +126,10 @@ For exact setup, lock/unlock, and password-change commands, open `references/lin
 ## Safety Policy
 
 - Never send real mutating contract requests without `--confirm-live`
-- In user-facing dialogue, describe the trading environment as real contract trading. In Chinese summaries, use `当前交易环境：真实盘`; in English summaries, use `Current trading mode: real trading`.
-- For every natural-language summary that uses private WEEX data or mentions a private order action, start with `user_environment_prefix` when it is returned. This includes account balances, positions, account risk, order previews, submitted order results, order cancel results, TP/SL order results, open-order queries, order status queries, and order-history queries.
+- This skill has one trading route only; do not offer environment switching or environment-choice confirmations.
+- For natural-language summaries that use private WEEX data or mention a submitted private order action, include `user_environment_prefix` when it is returned as audit context. Do not turn that prefix into an extra confirmation step.
 - Every natural-language order preview flow must return structured risk output before the order can be confirmed
-- For natural-language order preview confirmations, show the returned `user_confirmation.reply_instruction` as the user-facing confirmation block. The confirmation block must put the mode and funds warning first, then include the risk preview status, order summary, highest-priority warning, and the exact confirmation reply.
+- For natural-language order preview confirmations, show the returned `user_confirmation.reply_instruction` as the user-facing confirmation block. The confirmation block must include the risk preview status, order summary, highest-priority warning, and the exact confirmation reply. It must not include environment choices, funds-warning lead-ins, or switch-environment replies.
 - For natural-language confirmations, the only text the user should reply with to execute is `user_confirmation.reply_text`; keep `intent_id` plus `risk_signature` internal to the execution step. The reply text is intentionally simple and localized, such as `confirm` for English.
 - Pending order intents expire after a short TTL and must be regenerated when they are stale
 - Confirmation must bind to the latest preview via `intent_id` and `risk_signature`; do not reuse old confirmation tokens

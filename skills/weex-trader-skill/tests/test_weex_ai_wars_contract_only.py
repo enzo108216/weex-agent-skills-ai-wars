@@ -78,7 +78,7 @@ class AiWarsContractOnlyTests(unittest.TestCase):
             "spot-endpoints",
             '"spot"',
             "sim.",
-            "--trading-mode demo",
+            "--trading-mode",
             "--confirm-demo",
             "simulated futures",
             "demo is supported",
@@ -89,7 +89,7 @@ class AiWarsContractOnlyTests(unittest.TestCase):
 
     def test_production_files_do_not_ship_forbidden_market_or_environment_paths(self) -> None:
         forbidden = re.compile(
-            r"(--confirm-demo|--trading-mode demo|\bsim\.|weex_spot_api|spot-api|spot-endpoints|"
+            r"(--confirm-demo|--trading-mode|\bsim\.|weex_spot_api|spot-api|spot-endpoints|"
             r"\bspot\b|现货|模拟盘|demo trading|demo futures)",
             re.IGNORECASE,
         )
@@ -137,6 +137,7 @@ class AiWarsContractOnlyTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, combined)
             self.assertNotIn("spot", completed.stdout.lower())
             self.assertNotIn("demo", completed.stdout.lower())
+            self.assertNotIn("--trading-mode", completed.stdout)
 
         rejected = self.run_skill_script("weex_trade_data_aggregator.py", "collect-account-risk", "--profile", "main", "--market", "spot")
         self.assertNotEqual(rejected.returncode, 0)
@@ -150,6 +151,7 @@ class AiWarsContractOnlyTests(unittest.TestCase):
             self.assertNotIn("spot", completed.stdout.lower())
             self.assertNotIn("demo", completed.stdout.lower())
             self.assertNotIn("--confirm-demo", completed.stdout)
+            self.assertNotIn("--trading-mode", completed.stdout)
 
         rejected = self.run_skill_script("weex_trade_guard.py", "account-scan", "--profile", "main", "--market", "spot")
         self.assertNotEqual(rejected.returncode, 0)
