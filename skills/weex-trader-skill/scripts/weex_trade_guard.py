@@ -149,20 +149,6 @@ def _confirmation_environment_label(environment: dict[str, Any], *, language: st
     return _user_facing_trading_mode_label(environment, language=language)
 
 
-def _other_confirmation_environment_label(environment: dict[str, Any], *, language: str) -> str:
-    _normalize_trading_mode(environment.get("trading_mode"))
-    if language == "zh":
-        return "真实盘"
-    return "real trading"
-
-
-def _switch_reply_text(environment: dict[str, Any], *, language: str) -> str:
-    other_mode = _other_confirmation_environment_label(environment, language=language)
-    if language == "zh":
-        return f"切换到{other_mode}"
-    return f"switch to {other_mode}"
-
-
 def _query_environment_prefix(environment: dict[str, Any], *, language: str | None = None) -> str:
     resolved_language = resolve_language(language)
     mode = _confirmation_environment_label(environment, language=resolved_language)
@@ -321,9 +307,8 @@ def _build_zh_confirmation_instruction(
     *,
     environment: dict[str, Any],
     preview_context: dict[str, Any] | None,
-    include_mode_switch: bool,
     reply_text: str,
-) -> tuple[str, str | None]:
+) -> str:
     mode = _confirmation_environment_label(environment, language="zh")
     uses_real_funds = bool(environment.get("uses_real_funds"))
     funds_line = "本次操作将使用真实资金，请谨慎确认。" if uses_real_funds else "本次操作不会使用真实资金。"
@@ -343,21 +328,15 @@ def _build_zh_confirmation_instruction(
         "",
         confirm_line,
     ]
-    switch_text = None
-    if include_mode_switch:
-        switch_text = _switch_reply_text(environment, language="zh")
-        other_mode = _other_confirmation_environment_label(environment, language="zh")
-        lines.extend(["", f"如果需要切换为{other_mode}，请回复：{switch_text}。"])
-    return "\n".join(lines), switch_text
+    return "\n".join(lines)
 
 
 def _build_en_confirmation_instruction(
     *,
     environment: dict[str, Any],
     preview_context: dict[str, Any] | None,
-    include_mode_switch: bool,
     reply_text: str,
-) -> tuple[str, str | None]:
+) -> str:
     mode = _confirmation_environment_label(environment, language="en")
     uses_real_funds = bool(environment.get("uses_real_funds"))
     funds_line = "This operation uses real funds. Confirm carefully." if uses_real_funds else "This operation does not use real funds."
@@ -378,12 +357,7 @@ def _build_en_confirmation_instruction(
         "",
         confirm_line,
     ]
-    switch_text = None
-    if include_mode_switch:
-        switch_text = _switch_reply_text(environment, language="en")
-        other_mode = _other_confirmation_environment_label(environment, language="en")
-        lines.extend(["", f"To switch to {other_mode}, reply: {switch_text}."])
-    return "\n".join(lines), switch_text
+    return "\n".join(lines)
 
 
 def _build_user_confirmation(
@@ -391,25 +365,21 @@ def _build_user_confirmation(
     *,
     environment: dict[str, Any] | None = None,
     preview_context: dict[str, Any] | None = None,
-    include_mode_switch: bool = False,
 ) -> dict[str, str]:
     resolved_language = resolve_language(language)
     prompt = CONFIRMATION_PROMPTS[resolved_language]
     reply_instruction = prompt["reply_instruction"]
-    switch_text = None
     if environment is not None:
         if resolved_language == "zh":
-            reply_instruction, switch_text = _build_zh_confirmation_instruction(
+            reply_instruction = _build_zh_confirmation_instruction(
                 environment=environment,
                 preview_context=preview_context,
-                include_mode_switch=include_mode_switch,
                 reply_text=prompt["reply_text"],
             )
         else:
-            reply_instruction, switch_text = _build_en_confirmation_instruction(
+            reply_instruction = _build_en_confirmation_instruction(
                 environment=environment,
                 preview_context=preview_context,
-                include_mode_switch=include_mode_switch,
                 reply_text=prompt["reply_text"],
             )
     result = {
@@ -417,8 +387,6 @@ def _build_user_confirmation(
         "reply_text": prompt["reply_text"],
         "reply_instruction": reply_instruction,
     }
-    if switch_text is not None:
-        result["switch_reply_text"] = switch_text
     return result
 
 
@@ -636,7 +604,6 @@ def cmd_preview_order(args: argparse.Namespace, *, now_ms: int | None = None) ->
         _arg_value(args, "language", None),
         environment=environment,
         preview_context=confirmation_context,
-        include_mode_switch=True,
     )
     _output_json(response, args.pretty)
     return 0

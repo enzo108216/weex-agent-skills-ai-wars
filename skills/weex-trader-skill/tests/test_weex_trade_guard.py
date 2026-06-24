@@ -144,6 +144,64 @@ class ContractOnlyTradeGuardTests(unittest.TestCase):
             "real trading",
         )
 
+    def test_preview_order_confirmation_does_not_offer_mode_switch(self) -> None:
+        args = mock.Mock(
+            profile="main",
+            market="futures",
+            trading_mode="live",
+            order_json='{"symbol":"BTCUSDT","side":"BUY","position_side":"LONG","order_type":"MARKET","quantity":"0.001"}',
+            ai_log=None,
+            ttl_seconds=300,
+            language="zh",
+            pretty=False,
+        )
+        risk_payload = {
+            "order_preview": {
+                "symbol": "BTCUSDT",
+                "side": "BUY",
+                "position_side": "LONG",
+                "order_type": "MARKET",
+                "quantity": "0.001",
+                "market": "futures",
+                "trading_mode": "live",
+            },
+            "environment": {"trading_mode": "live", "uses_real_funds": True, "market": "futures"},
+        }
+        analysis_output = {
+            "order_preview": risk_payload["order_preview"],
+            "alerts": [
+                {
+                    "type": "missing_tp_sl",
+                    "level": "high",
+                    "reason": "The order is missing take-profit or stop-loss protection.",
+                }
+            ],
+        }
+        captured: dict[str, object] = {}
+
+        with mock.patch.object(
+            trade_guard.TradeDataAggregator,
+            "collect_order_risk_payload",
+            return_value=risk_payload,
+        ), mock.patch.object(
+            trade_guard.analysis,
+            "analyze_order_risk",
+            return_value=analysis_output,
+        ), mock.patch.object(
+            trade_guard,
+            "save_intent",
+        ), mock.patch.object(
+            trade_guard,
+            "_output_json",
+            side_effect=lambda payload, pretty: captured.setdefault("payload", payload),
+        ):
+            exit_code = trade_guard.cmd_preview_order(args, now_ms=1000)
+
+        self.assertEqual(exit_code, 0)
+        confirmation = captured["payload"]["user_confirmation"]
+        self.assertNotIn("switch_reply_text", confirmation)
+        self.assertNotIn("切换", confirmation["reply_instruction"])
+
     def test_submit_order_rejects_non_futures_market_before_client_build(self) -> None:
         with mock.patch.object(trade_guard, "_build_contract_client") as contract_mock:
             with self.assertRaises(trade_guard.AggregationInputError) as exc_info:
