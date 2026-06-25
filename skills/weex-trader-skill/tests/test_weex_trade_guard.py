@@ -225,6 +225,40 @@ class ContractOnlyTradeGuardTests(unittest.TestCase):
         self.assertNotIn("real trading", confirmation["reply_instruction"])
         self.assertNotIn("real funds", confirmation["reply_instruction"])
 
+    def test_preview_order_confirmation_lists_frequency_alert_with_top_warning(self) -> None:
+        confirmation = trade_guard._build_user_confirmation(
+            "zh",
+            environment={"trading_mode": "live", "uses_real_funds": True, "market": "futures"},
+            preview_context={
+                "order_preview": {
+                    "symbol": "BTCUSDT",
+                    "side": "BUY",
+                    "position_side": "LONG",
+                    "order_type": "MARKET",
+                    "quantity": "0.001",
+                    "market": "futures",
+                    "trading_mode": "live",
+                },
+                "alerts": [
+                    {
+                        "type": "missing_tp_sl",
+                        "level": "high",
+                        "reason": "The order is missing take-profit or stop-loss protection.",
+                    },
+                    {
+                        "type": "high_trade_frequency",
+                        "level": "warning",
+                        "reason": "Recent trading frequency is high in the current review window.",
+                    },
+                ],
+            },
+        )
+
+        instruction = confirmation["reply_instruction"]
+        self.assertIn("高风险提示", instruction)
+        self.assertIn("频繁交易", instruction)
+        self.assertIn("如果确认提交这笔订单，请回复：确认", instruction)
+
     def test_submit_order_rejects_non_futures_market_before_client_build(self) -> None:
         with mock.patch.object(trade_guard, "_build_contract_client") as contract_mock:
             with self.assertRaises(trade_guard.AggregationInputError) as exc_info:

@@ -27,6 +27,8 @@ FUTURES_ORDER_LIMIT = 1000
 FUTURES_FILL_LIMIT = 100
 FUTURES_BILL_LIMIT = 100
 KLINE_LIMIT = 100
+RECENT_ORDER_LOOKBACK_MS = 60 * 60 * 1000
+RECENT_ORDER_HISTORY_UNAVAILABLE = "recent_order_history_unavailable"
 
 
 class AggregationInputError(ValueError):
@@ -529,6 +531,11 @@ def _normalize_orders(rows: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def _append_unique(values: list[Any], value: Any) -> None:
+    if value not in values:
+        values.append(value)
+
+
 def _normalize_fills(rows: Any) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for row in _payload_items(rows):
@@ -680,10 +687,30 @@ class TradeDataAggregator:
             symbol=symbol,
             trading_mode=trading_mode,
         )
+        now_ms = _now_ms()
+        recent_order_payload: Any = []
+        try:
+            recent_order_payload = self.fetcher.fetch_futures_orders(
+                profile_name=profile_name,
+                start_ms=max(0, now_ms - RECENT_ORDER_LOOKBACK_MS),
+                end_ms=now_ms,
+                symbol=symbol,
+                trading_mode=trading_mode,
+            )
+        except Exception as exc:
+            payload["partial"] = True
+            _append_unique(payload["degraded_reasons"], RECENT_ORDER_HISTORY_UNAVAILABLE)
+            payload["constraints"].append(
+                {
+                    "code": RECENT_ORDER_HISTORY_UNAVAILABLE,
+                    "message": f"Recent order history could not be collected: {exc}",
+                }
+            )
         balances = _normalize_balance_entries(balance_payload)
         positions = _normalize_positions(position_payload)
         open_orders = _normalize_orders(open_order_payload)
         conditional_orders = _normalize_orders(pending_order_payload)
+        recent_orders = _normalize_orders(recent_order_payload)
         orders = open_orders + conditional_orders
         payload.update(
             {
@@ -692,7 +719,7 @@ class TradeDataAggregator:
                 "positions": positions,
                 "open_orders": open_orders,
                 "conditional_orders": conditional_orders,
-                "recent_orders": [],
+                "recent_orders": recent_orders,
                 "orders": orders,
                 "fills": [],
                 "bills": [],
@@ -701,6 +728,7 @@ class TradeDataAggregator:
                     "positions": position_payload,
                     "open_orders": open_order_payload,
                     "pending_orders": pending_order_payload,
+                    "recent_order_history": recent_order_payload,
                 },
             }
         )
