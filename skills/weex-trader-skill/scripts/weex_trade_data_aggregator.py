@@ -17,6 +17,8 @@ from weex_profile_language import resolve_language
 DAY_MS = 24 * 60 * 60 * 1000
 REPLAY_PERIODS = ("7d", "30d", "90d")
 PROFILE_PERIODS = ("30d", "90d", "180d", "360d")
+PROFILE_PERIOD_AUTO = "auto"
+PROFILE_MIN_CLOSED_TRADES = 10
 COLLECTION_PERIODS = REPLAY_PERIODS + ("180d", "360d")
 DEFAULT_TRADING_MODE = "live"
 TRADING_MODES = ("live",)
@@ -65,6 +67,16 @@ def _validate_replay_period(period: str) -> str:
         raise AggregationInputError(
             f"Unsupported replay period: {period}. Expected one of {', '.join(COLLECTION_PERIODS)}."
         )
+    return normalized
+
+
+def _validate_profile_period(period: str) -> str:
+    normalized = str(period).strip().lower()
+    if normalized == PROFILE_PERIOD_AUTO:
+        return normalized
+    if normalized not in PROFILE_PERIODS:
+        expected = ", ".join((PROFILE_PERIOD_AUTO, *PROFILE_PERIODS))
+        raise AggregationInputError(f"Unsupported profile period: {period}. Expected one of {expected}.")
     return normalized
 
 
@@ -855,7 +867,38 @@ class TradeDataAggregator:
         return payload
 
     def collect_profile_payload(self, **kwargs: Any) -> dict[str, Any]:
-        return self.collect_replay_payload(**kwargs)
+        requested_period = _validate_profile_period(str(kwargs.pop("period", PROFILE_PERIOD_AUTO)))
+        if requested_period != PROFILE_PERIOD_AUTO:
+            payload = self.collect_replay_payload(period=requested_period, **kwargs)
+            payload["selected_period"] = requested_period
+            payload["fallback_applied"] = False
+            payload["fallback_periods_considered"] = [
+                {
+                    "period": requested_period,
+                    "closed_trade_count": int(payload.get("closed_trade_count") or 0),
+                }
+            ]
+            return payload
+
+        considered: list[dict[str, Any]] = []
+        selected_payload: dict[str, Any] | None = None
+        for period in PROFILE_PERIODS:
+            payload = self.collect_replay_payload(period=period, **kwargs)
+            closed_trade_count = int(payload.get("closed_trade_count") or 0)
+            considered.append({"period": period, "closed_trade_count": closed_trade_count})
+            selected_payload = payload
+            if closed_trade_count >= PROFILE_MIN_CLOSED_TRADES:
+                break
+
+        if selected_payload is None:  # pragma: no cover
+            raise AggregationInputError("No profile collection periods are configured.")
+
+        selected_period = str(selected_payload.get("period") or PROFILE_PERIODS[-1])
+        selected_payload["selected_period"] = selected_period
+        selected_payload["fallback_applied"] = selected_period != PROFILE_PERIODS[0]
+        selected_payload["fallback_periods_considered"] = considered
+        selected_payload["minimum_closed_trade_count"] = PROFILE_MIN_CLOSED_TRADES
+        return selected_payload
 
 
 def _output_json(payload: dict[str, Any], *, pretty: bool = False) -> None:
@@ -885,7 +928,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     profile = subparsers.add_parser("collect-profile", help="Collect contract profile data")
     _add_common_arguments(profile)
-    profile.add_argument("--period", choices=PROFILE_PERIODS, default="90d")
+    profile.add_argument("--period", choices=(PROFILE_PERIOD_AUTO, *PROFILE_PERIODS), default=PROFILE_PERIOD_AUTO)
 
     order_risk = subparsers.add_parser("collect-order-risk", help="Collect contract order-risk data")
     _add_common_arguments(order_risk)

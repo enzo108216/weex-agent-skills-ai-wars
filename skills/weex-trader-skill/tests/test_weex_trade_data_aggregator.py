@@ -33,6 +33,8 @@ class ContractOnlyAggregatorTests(unittest.TestCase):
         )
 
         self.assertEqual(args.market, "futures")
+        profile_args = parser.parse_args(["collect-profile", "--profile", "main"])
+        self.assertEqual(profile_args.period, "auto")
         with self.assertRaises(SystemExit):
             parser.parse_args(["collect-account-risk", "--profile", "main", "--market", "spot"])
         with self.assertRaises(SystemExit):
@@ -396,6 +398,62 @@ class ContractOnlyAggregatorTests(unittest.TestCase):
         fetcher.fetch_futures_fills.assert_called()
         fetcher.fetch_futures_bills.assert_called()
         fetcher.fetch_futures_klines.assert_called_once()
+
+    def test_collect_profile_default_keeps_30d_when_closed_trade_sample_is_sufficient(self) -> None:
+        fetcher = mock.Mock()
+        fetcher.fetch_futures_balance.return_value = []
+        fetcher.fetch_futures_positions.return_value = []
+        fetcher.fetch_futures_orders.return_value = []
+        fetcher.fetch_futures_historical_pending_orders.return_value = []
+        fetcher.fetch_futures_fills.return_value = []
+        fetcher.fetch_futures_bills.return_value = [
+            {"incomeType": "position_close_long", "income": "1", "time": 1710000000000 + index}
+            for index in range(12)
+        ]
+        trade_aggregator = aggregator.TradeDataAggregator(fetcher=fetcher)
+
+        with mock.patch.object(aggregator, "_now_ms", return_value=1710000000000):
+            result = trade_aggregator.collect_profile_payload(profile_name="main", market="futures", trading_mode="live")
+
+        self.assertEqual(result["period"], "30d")
+        self.assertEqual(result["selected_period"], "30d")
+        self.assertFalse(result["fallback_applied"])
+        self.assertEqual(result["closed_trade_count"], 12)
+        fetcher.fetch_futures_bills.assert_called_once()
+
+    def test_collect_profile_default_expands_when_30d_closed_trade_sample_is_too_small(self) -> None:
+        fetcher = mock.Mock()
+        fetcher.fetch_futures_balance.return_value = []
+        fetcher.fetch_futures_positions.return_value = []
+        fetcher.fetch_futures_orders.return_value = []
+        fetcher.fetch_futures_historical_pending_orders.return_value = []
+        fetcher.fetch_futures_fills.return_value = []
+        fetcher.fetch_futures_bills.side_effect = [
+            [
+                {"incomeType": "position_close_long", "income": "1", "time": 1710000000000 + index}
+                for index in range(4)
+            ],
+            [
+                {"incomeType": "position_close_long", "income": "1", "time": 1710000000000 + index}
+                for index in range(12)
+            ],
+        ]
+        trade_aggregator = aggregator.TradeDataAggregator(fetcher=fetcher)
+
+        with mock.patch.object(aggregator, "_now_ms", return_value=1710000000000):
+            result = trade_aggregator.collect_profile_payload(profile_name="main", market="futures", trading_mode="live")
+
+        self.assertEqual(result["period"], "90d")
+        self.assertEqual(result["selected_period"], "90d")
+        self.assertTrue(result["fallback_applied"])
+        self.assertEqual(
+            result["fallback_periods_considered"],
+            [
+                {"period": "30d", "closed_trade_count": 4},
+                {"period": "90d", "closed_trade_count": 12},
+            ],
+        )
+        self.assertEqual(fetcher.fetch_futures_bills.call_count, 2)
 
     def test_main_exits_for_rejected_market(self) -> None:
         with self.assertRaises(SystemExit) as exc_info:

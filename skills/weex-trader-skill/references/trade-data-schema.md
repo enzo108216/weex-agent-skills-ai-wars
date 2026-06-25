@@ -56,7 +56,14 @@ When a command returns `user_environment_prefix`, use it as audit context only; 
 
 ## Profile Payload
 
-`collect-profile` reuses the replay payload shape and records a longer collection period. It does not create a separate strategy profile or scoring model.
+`collect-profile` reuses the replay payload shape and does not create a separate strategy profile or scoring model. Its default `--period auto` starts with `30d` and only expands through `90d`, `180d`, and `360d` while the selected payload has fewer than 10 closed trades. Passing an explicit period such as `--period 30d` disables automatic expansion.
+
+Auto-selected profile payloads include:
+
+- `selected_period`
+- `fallback_applied`
+- `fallback_periods_considered`
+- `minimum_closed_trade_count`
 
 ## Order-Risk Payload
 
